@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MCQ Practice Pro — Final (Pure HTML)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* Professional dark UI */
+    :root{--bg1:#020617;--bg2:#0b1220;--card:#071225;--muted:#94a3b8}
+    html,body{height:100%;margin:0}
+    body{
+      font-family:Arial,Helvetica,sans-serif;
+      background:radial-gradient(circle at 10% 10%, #071428 0%, transparent 35%),
+                 radial-gradient(circle at 95% 110%, #001022 0%, transparent 35%),
+                 linear-gradient(180deg,#021025,#041026);
+      color:#e6eef8;
+      min-height:100vh;
+      padding:22px;
+      box-sizing:border-box;
+    }
+    .app{max-width:1100px;margin:0 auto}
+    h1{text-align:center;margin:6px 0 12px;font-weight:800;letter-spacing:.6px}
+    .subtitle{text-align:center;color:var(--muted);margin-bottom:18px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+    .card{
+      background:linear-gradient(180deg,#081726,#06121a);
+      border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,.04);
+      box-shadow:0 14px 36px rgba(0,0,0,.6);
+    }
+    .card h3{margin:0 0 6px;font-size:18px}
+    .card p{margin:0 0 12px;color:var(--muted);font-size:13px}
+    button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+    .primary{background:linear-gradient(180deg,#3b82f6,#2563eb);color:#fff;box-shadow:0 10px 24px rgba(37,99,235,.18)}
+    .outline{background:transparent;border:1px solid rgba(255,255,255,.06);color:#e6eef8}
+    .quiz{max-width:1000px;margin:16px auto;padding:20px;border-radius:14px;background:linear-gradient(180deg,#071428,#051022);box-shadow:0 18px 46px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.03)}
+    .quizHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:800}
+    .question{font-size:18px;margin-bottom:12px}
+    .options{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    .options button{padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:linear-gradient(180deg,#071825,#05121a);color:#e6eef8;text-align:left}
+    .feedback{margin-top:12px;padding:12px;border-radius:10px;font-weight:700}
+    .success{background:linear-gradient(180deg,#08331f,#052216);color:#a7f3d0;border:1px solid #064e3b}
+    .error{background:linear-gradient(180deg,#3b0b0b,#2a0606);color:#fee2e2;border:1px solid #7f1d1d}
+    .hidden{display:none}
+    .muted{color:var(--muted);font-size:13px;text-align:center;margin-top:12px}
+    #debug{position:fixed;right:12px;bottom:12px;width:360px;max-height:45vh;overflow:auto;background:rgba(0,0,0,0.85);color:#fff;padding:12px;border-radius:10px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.6);display:none;z-index:9999}
+    #debug h4{margin:0 0 8px 0;font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <h1>MCQ Practice Pro</h1>
+    <div class="subtitle">Professional — Offline, single HTML file</div>
+
+    <div id="menu">
+      <div class="grid" id="subjectGrid"></div>
+    </div>
+
+    <div id="quiz" class="quiz hidden" aria-live="polite">
+      <div class="quizHeader" id="quizHeader"></div>
+      <div class="question" id="questionText"></div>
+      <div class="options" id="options"></div>
+      <div id="feedback" class="feedback hidden"></div>
+      <br />
+      <button class="outline" id="exitBtn">Exit to Subjects</button>
+    </div>
+
+    <p class="muted">Attempts per question: 4. Correct answer advances to next question only.</p>
+  </div>
+
+  <div id="debug"><h4>Debug</h4><div id="debugContent"></div></div>
+
+  <script>
+  (function(){
+    // ---------- Safety & Debug ----------
+    function showDebug(msg){
+      try{
+        var dbg = document.getElementById('debug');
+        var content = document.getElementById('debugContent');
+        if(!dbg || !content) return;
+        dbg.style.display = 'block';
+        var el = document.createElement('div');
+        el.style.marginBottom = '8px';
+        el.style.wordBreak = 'break-word';
+        el.textContent = new Date().toLocaleTimeString() + ' — ' + String(msg);
+        content.insertBefore(el, content.firstChild);
+      }catch(e){ /* ignore */ }
+    }
+    window.onerror = function(message, source, lineno, colno, error){
+      showDebug('Error: ' + message + ' (' + lineno + ':' + colno + ')');
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(ev){
+      showDebug('UnhandledRejection: ' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason)));
+    });
+
+    // ---------- localStorage helpers ----------
+    function safeParse(v, fallback){ try{ return JSON.parse(v); }catch(e){ return fallback; } }
+    function safeGet(k, fallback){ try{ var v = localStorage.getItem(k); return v===null?fallback:safeParse(v,fallback); }catch(e){ showDebug('localStorage.get error'); return fallback; } }
+    function safeSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ showDebug('localStorage.set failed'); } }
+
+    // ---------- Audio (guarded) ----------
+    var audioCtx = null;
+    function ensureAudio(){
+      if(audioCtx) return;
+      try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ audioCtx = null; showDebug('Audio unavailable or blocked'); }
+    }
+    function playTone(freq, dur){
+      if(!audioCtx) return;
+      try{
+        var o = audioCtx.createOscillator();
+        var g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        o.connect(g); g.connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.16, audioCtx.currentTime + 0.02);
+        o.start();
+        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+        o.stop(audioCtx.currentTime + dur + 0.02);
+      }catch(e){}
+    }
+    function successSound(){ playTone(800,0.12); setTimeout(function(){ playTone(660,0.08); },80); }
+    function failSound(){ playTone(220,0.18); }
+
+    // ---------- Question bank (10 subjects × 10 questions) ----------
+    var initialBank = [
+      { subject:'Math', questions:[
+        {text:'2 + 2 = ?', options:['3','4','5','6'], correct:1},
+        {text:'5 × 6 = ?', options:['11','20','30','35'], correct:2},
+        {text:'Square root of 81?', options:['7','8','9','10'], correct:2},
+        {text:'10% of 200?', options:['10','15','20','25'], correct:2},
+        {text:'12 ÷ 3 = ?', options:['2','3','4','5'], correct:2},
+        {text:'Perimeter of square side a?', options:['4a','a²','2a','a/2'], correct:0},
+        {text:'15 + 25 = ?', options:['30','35','40','45'], correct:2},
+        {text:'Value of π ≈ ?', options:['2.14','3.14','4.14','5.14'], correct:1},
+        {text:'7² = ?', options:['14','21','49','28'], correct:2},
+        {text:'100 ÷ 4 = ?', options:['20','25','30','40'], correct:1}
+      ]},
+      { subject:'Science', questions:[
+        {text:'Chemical symbol of water?', options:['H','H2','H2O','O2'], correct:2},
+        {text:'Gas used in respiration?', options:['CO2','O2','N2','H2'], correct:1},
+        {text:'Energy unit?', options:['Volt','Watt','Joule','Ampere'], correct:2},
+        {text:'Closest planet to Sun?', options:['Earth','Venus','Mercury','Mars'], correct:2},
+        {text:'Living part of soil?', options:['Sand','Water','Humus','Stone'], correct:2},
+        {text:'Human blood color?', options:['Blue','Green','Red','Yellow'], correct:2},
+        {text:'Force formula?', options:['m+v','m-v','m×a','m÷a'], correct:2},
+        {text:'Vitamin C deficiency causes?', options:['Scurvy','Rickets','Anemia','Goiter'], correct:0},
+        {text:'Largest organ of body?', options:['Heart','Skin','Liver','Brain'], correct:1},
+        {text:'Plant food making process?', options:['Respiration','Reproduction','Photosynthesis','Transpiration'], correct:2}
+      ]},
+      { subject:'English', questions:[
+        {text:'Opposite of Hot?', options:['Warm','Cold','Cool','Heat'], correct:1},
+        {text:'Correct spelling?', options:['Definately','Definetly','Definitely','Definelty'], correct:2},
+        {text:'Plural of Child?', options:['Childs','Childrens','Children','Childes'], correct:2},
+        {text:'Synonym of Fast?', options:['Slow','Quick','Late','Weak'], correct:1},
+        {text:'Article before Apple?', options:['a','an','the','no'], correct:1},
+        {text:'Past tense of Go?', options:['Gone','Going','Went','Goed'], correct:2},
+        {text:'He ___ playing.', options:['is','are','am','be'], correct:0},
+        {text:'Opposite of Begin?', options:['Start','Close','End','Open'], correct:2},
+        {text:'Full form of SMS?', options:['Short Mail Service','Simple Message','Short Message Service','Small Message Service'], correct:2},
+        {text:'Noun in: "Ram is a boy".', options:['Ram','is','a','boy'], correct:3}
+      ]},
+      { subject:'History', questions:[
+        {text:'Father of Nation?', options:['Nehru','Gandhi','Patel','Bose'], correct:1},
+        {text:'Independence year of India?', options:['1942','1945','1947','1950'], correct:2},
+        {text:'First Mughal emperor?', options:['Babur','Akbar','Humayun','Shahjahan'], correct:0},
+        {text:'Jallianwala Bagh incident year?', options:['1915','1917','1919','1921'], correct:2},
+        {text:'Quit India Movement year?', options:['1935','1940','1942','1945'], correct:2},
+        {text:'Red Fort built by?', options:['Akbar','Babur','Shah Jahan','Aurangzeb'], correct:2},
+        {text:'First PM of India?', options:['Patel','Nehru','Gandhi','Rajaji'], correct:1},
+        {text:'Capital of British India?', options:['Delhi','Mumbai','Kolkata','Chennai'], correct:2},
+        {text:'National Song?', options:['Vande Mataram','Jana Gana Mana','Saare Jahan Se','Ae Mere Watan'], correct:0},
+        {text:'Taj Mahal built by?', options:['Babur','Akbar','Shah Jahan','Aurangzeb'], correct:2}
+      ]},
+      { subject:'Geography', questions:[
+        {text:'Largest ocean?', options:['Atlantic','Indian','Arctic','Pacific'], correct:3},
+        {text:'Highest mountain?', options:['K2','Everest','Kangchenjunga','Makalu'], correct:1},
+        {text:'Capital of Gujarat?', options:['Surat','Vadodara','Ahmedabad','Gandhinagar'], correct:3},
+        {text:'River Ganga origin?', options:['Yamunotri','Gangotri','Amarnath','Narmada'], correct:1},
+        {text:'Desert in India?', options:['Thar','Sahara','Gobi','Atacama'], correct:0},
+        {text:'Largest continent?', options:['Europe','Africa','Asia','Australia'], correct:2},
+        {text:'Tropic of Cancer passes through?', options:['India','Pakistan','Nepal','Sri Lanka'], correct:0},
+        {text:'Longest river?', options:['Amazon','Nile','Yangtze','Mississippi'], correct:1},
+        {text:'Earth shape?', options:['Flat','Square','Sphere','Triangle'], correct:2},
+        {text:'Southernmost continent?', options:['Asia','Europe','Antarctica','Australia'], correct:2}
+      ]},
+      { subject:'Computer', questions:[
+        {text:'Full form of CPU?', options:['Central Power Unit','Central Processing Unit','Computer Processing Unit','Control Processing Unit'], correct:1},
+        {text:'Brain of computer?', options:['RAM','ROM','CPU','Hard Disk'], correct:2},
+        {text:'Input device?', options:['Monitor','Keyboard','Printer','Speaker'], correct:1},
+        {text:'Binary number system base?', options:['2','8','10','16'], correct:0},
+        {text:'Example of OS?', options:['MS Word','Windows','Chrome','Google'], correct:1},
+        {text:'Storage device?', options:['RAM','ROM','Hard Disk','CPU'], correct:2},
+        {text:'Youngest language among these?', options:['C','C++','Java','Python'], correct:3},
+        {text:'1 Byte = ?', options:['4 bits','8 bits','16 bits','32 bits'], correct:1},
+        {text:'Internet protocol?', options:['HTTP','FTP','TCP/IP','All'], correct:3},
+        {text:'Shortcut for Copy?', options:['Ctrl+X','Ctrl+V','Ctrl+C','Ctrl+Z'], correct:2}
+      ]},
+      { subject:'Physics', questions:[
+        {text:'SI unit of force?', options:['Newton','Joule','Watt','Pascal'], correct:0},
+        {text:'Speed formula?', options:['d×t','d÷t','t÷d','d+t'], correct:1},
+        {text:'Unit of work?', options:['Volt','Joule','Watt','Newton'], correct:1},
+        {text:'Light travels fastest in?', options:['Water','Glass','Vacuum','Air'], correct:2},
+        {text:'SI unit of current?', options:['Volt','Ampere','Ohm','Watt'], correct:1},
+        {text:'Mirror used in vehicles?', options:['Concave','Convex','Plane','None'], correct:1},
+        {text:'Force equals mass × ?', options:['Speed','Time','Acceleration','Energy'], correct:2},
+        {text:'Unit of power?', options:['Volt','Ampere','Watt','Ohm'], correct:2},
+        {text:'Sound needs what to travel?', options:['Vacuum','Medium','Light','Heat'], correct:1},
+        {text:'Energy of motion called?', options:['Potential','Mechanical','Kinetic','Solar'], correct:2}
+      ]},
+      { subject:'Chemistry', questions:[
+        {text:'Chemical symbol of Gold?', options:['Ag','Au','Gd','Go'], correct:1},
+        {text:'pH of pure water?', options:['5','6','7','8'], correct:2},
+        {text:'Common salt formula?', options:['NaCl','KCl','Na2CO3','CaCO3'], correct:0},
+        {text:'Acid in lemon?', options:['Acetic','Citric','Sulphuric','Nitric'], correct:1},
+        {text:'Gas used in soda?', options:['O2','CO2','N2','H2'], correct:1},
+        {text:'Atomic number of Oxygen?', options:['6','7','8','9'], correct:2},
+        {text:'Rust is formed due to?', options:['Water','Air','Both','None'], correct:2},
+        {text:'Bases taste?', options:['Sour','Sweet','Bitter','Salty'], correct:2},
+        {text:'Chemical symbol of Iron?', options:['Ir','Fe','In','I'], correct:1},
+        {text:'Metal liquid at room temp?', options:['Iron','Mercury','Copper','Silver'], correct:1}
+      ]},
+      { subject:'Biology', questions:[
+        {text:'Basic unit of life?', options:['Tissue','Organ','Cell','System'], correct:2},
+        {text:'Largest bone in body?', options:['Arm','Leg','Femur','Skull'], correct:2},
+        {text:'Organ for breathing?', options:['Heart','Lungs','Kidney','Liver'], correct:1},
+        {text:'Photosynthesis occurs in?', options:['Root','Stem','Leaf','Flower'], correct:2},
+        {text:'Blood purification organ?', options:['Heart','Liver','Kidney','Lungs'], correct:2},
+        {text:'Number of bones in human?', options:['200','206','210','215'], correct:1},
+        {text:'Vitamin for eyes?', options:['A','B','C','D'], correct:0},
+        {text:'Plant breathing pores?', options:['Stomata','Roots','Veins','Cells'], correct:0},
+        {text:'Largest organ of body?', options:['Heart','Skin','Liver','Brain'], correct:1},
+        {text:'Herbivores eat?', options:['Meat','Plants','Both','None'], correct:1}
+      ]}
+    ];
+
+    // ---------- Load or initialize bank ----------
+    var BANK_KEY = 'mcq_bank_final_v1';
+    var bank = safeGet(BANK_KEY, null) || initialBank;
+    safeSet(BANK_KEY, bank);
+
+    // ---------- UI elements ----------
+    var subjectGrid = document.getElementById('subjectGrid');
+    var menuEl = document.getElementById('menu');
+    var quizEl = document.getElementById('quiz');
+    var quizHeader = document.getElementById('quizHeader');
+    var questionText = document.getElementById('questionText');
+    var optionsEl = document.getElementById('options');
+    var feedbackEl = document.getElementById('feedback');
+    var exitBtn = document.getElementById('exitBtn');
+
+    // ---------- State ----------
+    var currentSubject = 0;
+    var currentIndex = 0;
+    var attemptsLeft = 4;
+
+    // ---------- Build subject menu ----------
+    function buildMenu(){
+      try{
+        subjectGrid.innerHTML = '';
+        bank.forEach(function(s, idx){
+          var card = document.createElement('div'); card.className = 'card';
+          var h = document.createElement('h3'); h.textContent = s.subject; card.appendChild(h);
+          var p = document.createElement('p'); p.textContent = (s.questions.length || 0) + ' Questions'; card.appendChild(p);
+          var btn = document.createElement('button'); btn.className = 'primary'; btn.textContent = 'Start Practice';
+          btn.addEventListener('click', function(){ try{ ensureAudio(); startQuiz(idx); }catch(e){ showDebug('startQuiz: '+(e&&e.message?e.message:e)); }});
+          card.appendChild(btn);
+          subjectGrid.appendChild(card);
+        });
+      }catch(e){ showDebug('buildMenu error: ' + (e&&e.message?e.message:e)); }
+    }
+
+    // ---------- Quiz flow ----------
+    function startQuiz(idx){
+      currentSubject = idx;
+      currentIndex = 0;
+      attemptsLeft = 4;
+      menuEl.classList.add('hidden');
+      quizEl.classList.remove('hidden');
+      loadQuestion();
+    }
+
+    function loadQuestion(){
+      try{
+        var subj = bank[currentSubject];
+        if(!subj || !subj.questions || subj.questions.length === 0){
+          showDebug('No questions for subject');
+          return goMenu();
+        }
+        var q = subj.questions[currentIndex];
+        if(!q){ showDebug('Question missing'); return goMenu(); }
+        quizHeader.textContent = subj.subject + ' | Attempts: ' + attemptsLeft + ' | Q ' + (currentIndex+1) + '/' + subj.questions.length;
+        questionText.textContent = q.text || '(empty)';
+        optionsEl.innerHTML = '';
+        feedbackEl.className = 'feedback hidden';
+        (q.options || []).forEach(function(opt, i){
+          var b = document.createElement('button'); b.className = 'outline';
+          b.textContent = (opt===undefined? '': String(opt));
+          b.addEventListener('click', function(){ answer(i); });
+          optionsEl.appendChild(b);
+        });
+      }catch(e){ showDebug('loadQuestion error: ' + (e&&e.message?e.message:e)); }
+    }
+
+    function answer(i){
+      try{
+        var subj = bank[currentSubject];
+        var q = subj.questions[currentIndex];
+        if(!q){ showDebug('answer: q missing'); return goMenu(); }
+        feedbackEl.classList.remove('hidden');
+        if(typeof q.correct !== 'number') q.correct = 0;
+        if(i === q.correct){
+          feedbackEl.className = 'feedback success';
+          feedbackEl.innerText = 'Correct';
+          try{ successSound(); }catch(e){}
+          setTimeout(function(){ attemptsLeft = 4; currentIndex++; if(currentIndex >= subj.questions.length) goMenu(); else loadQuestion(); }, 500);
+        } else {
+          attemptsLeft--;
+          feedbackEl.className = 'feedback error';
+          feedbackEl.innerText = 'Wrong';
+          try{ failSound(); }catch(e){}
+          quizHeader.textContent = subj.subject + ' | Attempts: ' + attemptsLeft + ' | Q ' + (currentIndex+1) + '/' + subj.questions.length;
+          if(attemptsLeft <= 0){
+            setTimeout(function(){
+              var correctText = (q.options && q.options[q.correct])? q.options[q.correct] : 'No answer';
+              feedbackEl.className = 'feedback error';
+              feedbackEl.innerText = 'Out of attempts — correct: ' + correctText;
+              setTimeout(function(){ attemptsLeft = 4; currentIndex++; if(currentIndex >= subj.questions.length) goMenu(); else loadQuestion(); }, 700);
+            }, 300);
+          }
+        }
+      }catch(e){ showDebug('answer error: ' + (e&&e.message?e.message:e)); }
+    }
+
+    function goMenu(){
+      quizEl.classList.add('hidden'); menuEl.classList.remove('hidden'); buildMenu();
+    }
+
+    exitBtn.addEventListener('click', goMenu);
+
+    // ---------- Init ----------
+    buildMenu();
+
+    // expose small debug API
+    window.MCQ = { bank: bank, save: function(){ safeSet(BANK_KEY, bank); showDebug('Bank saved'); } };
+
+    // helper functions used above (defined last to ensure available)
+    function safeParse(v, fallback){ try{ return JSON.parse(v); }catch(e){ return fallback; } }
+    function safeGet(k, fallback){ try{ var v=localStorage.getItem(k); return v===null?fallback:safeParse(v,fallback); }catch(e){ showDebug('localStorage.get'); return fallback; } }
+    function safeSet(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ showDebug('localStorage.set'); } }
+
+  })();
+  </script>
+</body>
+</html>
